@@ -1,7 +1,6 @@
 const {
  default: makeWASocket,
- useMultiFileAuthState,
- DisconnectReason
+ useMultiFileAuthState
 } = require("@whiskeysockets/baileys")
 
 const P = require("pino")
@@ -33,7 +32,7 @@ async function startBot() {
 
  sock.ev.on("creds.update", saveCreds)
 
- // MENSAGENS
+ // RECEBER MENSAGENS
  sock.ev.on("messages.upsert", async ({ messages }) => {
 
    const msg = messages[0]
@@ -55,7 +54,7 @@ async function startBot() {
        text:
 `🤖 BOT LITE ONLINE
 
-Comandos:
+📌 Comandos:
 !menu
 !ping`
      })
@@ -71,15 +70,25 @@ Comandos:
 
  })
 
- // RECONEXÃO
+ // STATUS CONEXÃO
  sock.ev.on("connection.update", ({ connection }) => {
 
-   if (connection === "close") {
-     startBot()
+   if (connection === "open") {
+
+     console.log("")
+     console.log("✅ BOT ONLINE")
+     console.log("")
+
    }
 
-   if (connection === "open") {
-     console.log("BOT ONLINE")
+   if (connection === "close") {
+
+     console.log("")
+     console.log("❌ CONEXÃO FECHADA")
+     console.log("🔄 RECONECTANDO...")
+     console.log("")
+
+     startBot()
    }
 
  })
