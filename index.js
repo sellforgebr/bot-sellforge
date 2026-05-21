@@ -38,7 +38,7 @@ async function startBot() {
 
     try {
 
-      const numero = "5551981528372"
+      const numero = "51981528372"
 
       console.log("")
       console.log("⏳ GERANDO PAIRING CODE...")
