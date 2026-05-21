@@ -5,24 +5,35 @@ const {
 } = require("@whiskeysockets/baileys")
 
 const P = require("pino")
+const express = require("express")
+
+const app = express()
+
+// PORTA RENDER
+const PORT = process.env.PORT || 3000
+
+app.get("/", (req, res) => {
+  res.send("BOT ONLINE")
+})
+
+app.listen(PORT, () => {
+  console.log("🌐 Servidor Web Online")
+})
 
 async function startBot() {
 
-  // SESSION
   const { state, saveCreds } =
   await useMultiFileAuthState("session")
 
-  // SOCKET
   const sock = makeWASocket({
     auth: state,
     logger: P({ level: "silent" }),
     browser: ["Bot Lite", "Chrome", "1.0.0"]
   })
 
-  // SALVAR SESSÃO
   sock.ev.on("creds.update", saveCreds)
 
-  // PAIRING CODE
+  // PAIRING
   if (!sock.authState.creds.registered) {
 
     try {
@@ -33,9 +44,8 @@ async function startBot() {
       console.log("⏳ GERANDO PAIRING CODE...")
       console.log("")
 
-      // ESPERA EVITAR CONNECTION CLOSED
       await new Promise(resolve =>
-        setTimeout(resolve, 5000)
+        setTimeout(resolve, 8000)
       )
 
       const code =
@@ -50,16 +60,14 @@ async function startBot() {
 
     } catch (err) {
 
-      console.log("")
-      console.log("❌ ERRO AO GERAR PAIRING")
+      console.log("❌ ERRO:")
       console.log(err)
-      console.log("")
 
     }
 
   }
 
-  // RECEBER MENSAGENS
+  // MENSAGENS
   sock.ev.on("messages.upsert", async ({ messages }) => {
 
     const msg = messages[0]
@@ -74,22 +82,6 @@ async function startBot() {
 
     console.log("📩", texto)
 
-    // MENU
-    if (texto === "!menu") {
-
-      await sock.sendMessage(from, {
-        text:
-`🤖 BOT LITE ONLINE
-
-📌 COMANDOS:
-
-!menu
-!ping`
-      })
-
-    }
-
-    // PING
     if (texto === "!ping") {
 
       await sock.sendMessage(from, {
@@ -98,47 +90,47 @@ async function startBot() {
 
     }
 
+    if (texto === "!menu") {
+
+      await sock.sendMessage(from, {
+        text:
+`🤖 BOT LITE
+
+📌 COMANDOS:
+!menu
+!ping`
+      })
+
+    }
+
   })
 
   // CONEXÃO
-  sock.ev.on("connection.update", async (update) => {
+  sock.ev.on("connection.update", (update) => {
 
     const {
       connection,
       lastDisconnect
     } = update
 
-    // ONLINE
     if (connection === "open") {
 
-      console.log("")
       console.log("✅ BOT ONLINE")
-      console.log("")
 
     }
 
-    // DESCONECTOU
     if (connection === "close") {
 
       const reason =
       lastDisconnect?.error?.output?.statusCode
 
-      console.log("")
       console.log("❌ CONEXÃO FECHADA")
-      console.log("Motivo:", reason)
-      console.log("")
 
-      // RECONECTAR
       if (
         reason !== DisconnectReason.loggedOut
       ) {
 
-        console.log("🔄 RECONECTANDO...")
         startBot()
-
-      } else {
-
-        console.log("🚫 SESSÃO DESCONECTADA")
 
       }
 
@@ -148,5 +140,4 @@ async function startBot() {
 
 }
 
-// INICIAR BOT
 startBot()
