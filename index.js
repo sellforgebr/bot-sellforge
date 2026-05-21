@@ -6,6 +6,7 @@ const {
 
 const P = require("pino")
 const express = require("express")
+const QRCode = require("qrcode-terminal")
 
 const app = express()
 
@@ -13,7 +14,7 @@ const app = express()
 const PORT = process.env.PORT || 3000
 
 app.get("/", (req, res) => {
-  res.send("BOT ONLINE")
+  res.send("🤖 BOT ONLINE")
 })
 
 app.listen(PORT, () => {
@@ -22,52 +23,84 @@ app.listen(PORT, () => {
 
 async function startBot() {
 
+  // SESSION
   const { state, saveCreds } =
   await useMultiFileAuthState("session")
 
+  // SOCKET
   const sock = makeWASocket({
     auth: state,
     logger: P({ level: "silent" }),
-    browser: ["Bot Lite", "Chrome", "1.0.0"]
+    browser: ["Bot Lite", "Chrome", "1.0.0"],
+    printQRInTerminal: false
   })
 
+  // SALVAR SESSÃO
   sock.ev.on("creds.update", saveCreds)
 
-  // PAIRING
-  if (!sock.authState.creds.registered) {
+  // QR CODE
+  sock.ev.on("connection.update", async (update) => {
 
-    try {
+    const {
+      connection,
+      lastDisconnect,
+      qr
+    } = update
 
-      const numero = "51981528372"
-
-      console.log("")
-      console.log("⏳ GERANDO PAIRING CODE...")
-      console.log("")
-
-      await new Promise(resolve =>
-        setTimeout(resolve, 8000)
-      )
-
-      const code =
-      await sock.requestPairingCode(numero)
+    // MOSTRAR QR
+    if (qr) {
 
       console.log("")
-      console.log("==============")
-      console.log("PAIRING CODE:")
-      console.log(code)
-      console.log("==============")
+      console.log("📱 ESCANEIE O QR CODE:")
       console.log("")
 
-    } catch (err) {
+      QRCode.generate(qr, {
+        small: true
+      })
 
-      console.log("❌ ERRO:")
-      console.log(err)
+      console.log("")
 
     }
 
-  }
+    // ONLINE
+    if (connection === "open") {
 
-  // MENSAGENS
+      console.log("")
+      console.log("✅ BOT ONLINE")
+      console.log("")
+
+    }
+
+    // DESCONECTOU
+    if (connection === "close") {
+
+      const reason =
+      lastDisconnect?.error?.output?.statusCode
+
+      console.log("")
+      console.log("❌ CONEXÃO FECHADA")
+      console.log("Motivo:", reason)
+      console.log("")
+
+      // RECONECTAR
+      if (
+        reason !== DisconnectReason.loggedOut
+      ) {
+
+        console.log("🔄 RECONECTANDO...")
+        startBot()
+
+      } else {
+
+        console.log("🚫 SESSÃO DESCONECTADA")
+
+      }
+
+    }
+
+  })
+
+  // RECEBER MENSAGENS
   sock.ev.on("messages.upsert", async ({ messages }) => {
 
     const msg = messages[0]
@@ -82,6 +115,22 @@ async function startBot() {
 
     console.log("📩", texto)
 
+    // MENU
+    if (texto === "!menu") {
+
+      await sock.sendMessage(from, {
+        text:
+`🤖 BOT LITE ONLINE
+
+📌 COMANDOS:
+
+!menu
+!ping`
+      })
+
+    }
+
+    // PING
     if (texto === "!ping") {
 
       await sock.sendMessage(from, {
@@ -90,54 +139,9 @@ async function startBot() {
 
     }
 
-    if (texto === "!menu") {
-
-      await sock.sendMessage(from, {
-        text:
-`🤖 BOT LITE
-
-📌 COMANDOS:
-!menu
-!ping`
-      })
-
-    }
-
-  })
-
-  // CONEXÃO
-  sock.ev.on("connection.update", (update) => {
-
-    const {
-      connection,
-      lastDisconnect
-    } = update
-
-    if (connection === "open") {
-
-      console.log("✅ BOT ONLINE")
-
-    }
-
-    if (connection === "close") {
-
-      const reason =
-      lastDisconnect?.error?.output?.statusCode
-
-      console.log("❌ CONEXÃO FECHADA")
-
-      if (
-        reason !== DisconnectReason.loggedOut
-      ) {
-
-        startBot()
-
-      }
-
-    }
-
   })
 
 }
 
+// INICIAR BOT
 startBot()
