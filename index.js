@@ -1,98 +1,152 @@
 const {
- default: makeWASocket,
- useMultiFileAuthState
+  default: makeWASocket,
+  useMultiFileAuthState,
+  DisconnectReason
 } = require("@whiskeysockets/baileys")
 
 const P = require("pino")
 
 async function startBot() {
 
- const { state, saveCreds } =
- await useMultiFileAuthState("./session")
+  // SESSION
+  const { state, saveCreds } =
+  await useMultiFileAuthState("session")
 
- const sock = makeWASocket({
-   auth: state,
-   logger: P({ level: "silent" })
- })
+  // SOCKET
+  const sock = makeWASocket({
+    auth: state,
+    logger: P({ level: "silent" }),
+    browser: ["Bot Lite", "Chrome", "1.0.0"]
+  })
 
- // PAIRING CODE
- if (!sock.authState.creds.registered) {
+  // SALVAR SESSÃO
+  sock.ev.on("creds.update", saveCreds)
 
-   const numero = "5551981528372"
+  // PAIRING CODE
+  if (!sock.authState.creds.registered) {
 
-   const code =
-   await sock.requestPairingCode(numero)
+    try {
 
-   console.log("")
-   console.log("==============")
-   console.log("PAIRING CODE:")
-   console.log(code)
-   console.log("==============")
- }
+      const numero = "5551981528372"
 
- sock.ev.on("creds.update", saveCreds)
+      console.log("")
+      console.log("⏳ GERANDO PAIRING CODE...")
+      console.log("")
 
- // RECEBER MENSAGENS
- sock.ev.on("messages.upsert", async ({ messages }) => {
+      // ESPERA EVITAR CONNECTION CLOSED
+      await new Promise(resolve =>
+        setTimeout(resolve, 5000)
+      )
 
-   const msg = messages[0]
+      const code =
+      await sock.requestPairingCode(numero)
 
-   if (!msg.message) return
+      console.log("")
+      console.log("==============")
+      console.log("PAIRING CODE:")
+      console.log(code)
+      console.log("==============")
+      console.log("")
 
-   const texto =
-   msg.message.conversation ||
-   msg.message.extendedTextMessage?.text
+    } catch (err) {
 
-   const from = msg.key.remoteJid
+      console.log("")
+      console.log("❌ ERRO AO GERAR PAIRING")
+      console.log(err)
+      console.log("")
 
-   console.log("Mensagem:", texto)
+    }
 
-   // COMANDO MENU
-   if (texto === "!menu") {
+  }
 
-     await sock.sendMessage(from, {
-       text:
+  // RECEBER MENSAGENS
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+
+    const msg = messages[0]
+
+    if (!msg.message) return
+
+    const texto =
+    msg.message.conversation ||
+    msg.message.extendedTextMessage?.text
+
+    const from = msg.key.remoteJid
+
+    console.log("📩", texto)
+
+    // MENU
+    if (texto === "!menu") {
+
+      await sock.sendMessage(from, {
+        text:
 `🤖 BOT LITE ONLINE
 
-📌 Comandos:
+📌 COMANDOS:
+
 !menu
 !ping`
-     })
-   }
+      })
 
-   // COMANDO PING
-   if (texto === "!ping") {
+    }
 
-     await sock.sendMessage(from, {
-       text: "🏓 PONG!"
-     })
-   }
+    // PING
+    if (texto === "!ping") {
 
- })
+      await sock.sendMessage(from, {
+        text: "🏓 PONG!"
+      })
 
- // STATUS CONEXÃO
- sock.ev.on("connection.update", ({ connection }) => {
+    }
 
-   if (connection === "open") {
+  })
 
-     console.log("")
-     console.log("✅ BOT ONLINE")
-     console.log("")
+  // CONEXÃO
+  sock.ev.on("connection.update", async (update) => {
 
-   }
+    const {
+      connection,
+      lastDisconnect
+    } = update
 
-   if (connection === "close") {
+    // ONLINE
+    if (connection === "open") {
 
-     console.log("")
-     console.log("❌ CONEXÃO FECHADA")
-     console.log("🔄 RECONECTANDO...")
-     console.log("")
+      console.log("")
+      console.log("✅ BOT ONLINE")
+      console.log("")
 
-     startBot()
-   }
+    }
 
- })
+    // DESCONECTOU
+    if (connection === "close") {
+
+      const reason =
+      lastDisconnect?.error?.output?.statusCode
+
+      console.log("")
+      console.log("❌ CONEXÃO FECHADA")
+      console.log("Motivo:", reason)
+      console.log("")
+
+      // RECONECTAR
+      if (
+        reason !== DisconnectReason.loggedOut
+      ) {
+
+        console.log("🔄 RECONECTANDO...")
+        startBot()
+
+      } else {
+
+        console.log("🚫 SESSÃO DESCONECTADA")
+
+      }
+
+    }
+
+  })
 
 }
 
+// INICIAR BOT
 startBot()
