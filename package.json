@@ -1,14 +1,26 @@
 {
   "name": "sellforgebot",
   "version": "1.0.0",
-  "description": "Bot Telegram V1",
+  "description": "Bot Telegram SellForge",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": [
+    "telegram",
+    "bot",
+    "firebase",
+    "mercadopago"
+  ],
+  "author": "Faelzin",
+  "license": "MIT",
   "dependencies": {
+    "axios": "^1.8.4",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "firebase-admin": "^13.4.0",
+    "mercadopago": "^2.8.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "qrcode": "^1.5.4"
   }
 }
