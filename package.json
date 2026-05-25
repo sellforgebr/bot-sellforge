@@ -1,0 +1,14 @@
+{
+  "name": "sellforgebot",
+  "version": "1.0.0",
+  "description": "Bot Telegram V1",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
