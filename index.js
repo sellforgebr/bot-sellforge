@@ -1,11 +1,26 @@
 require('dotenv').config();
 
+const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
+
+const app = express();
 
 const bot = new TelegramBot(
   process.env.BOT_TOKEN,
-  { polling: true }
+  {
+    polling: true
+  }
 );
+
+app.get('/', (req, res) => {
+  res.send('SellForge Bot Online');
+});
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
 
 console.log('Bot iniciado');
 
