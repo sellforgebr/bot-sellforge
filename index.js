@@ -19,7 +19,7 @@ const bot = new TelegramBot(
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
 // ⚠️ COLE AQUI O LINK DA IMAGEM DO /START
-const IMAGEM_INICIAL = "https://imgbox.com/oHOjbfWZ"; // 👈 COLOQUE SEU LINK AQUI
+const IMAGEM_INICIAL = "https://thumbs2.imgbox.com/10/35/oHOjbfWZ_t.jpeg"; // ✅ LINK CORRIGIDO QUE VOCÊ MANDOU
 
 // Configuração Render
 app.use(express.json({ limit: '5mb' }));
@@ -150,7 +150,7 @@ Favor, selecione o serviços logo abaixo:`,
       reply_markup: {
         inline_keyboard: [
           [ { text: '📦 Gerenciar Produtos', callback_data: 'MENU_PRODUTOS' } ],
-          [ { text: '📂 Gerenciar Categorias', callback_data: 'MENU_CATEGORIAS' } ], // ✅ NOVO
+          [ { text: '📂 Gerenciar Categorias', callback_data: 'MENU_CATEGORIAS' } ],
           [ { text: '🛒 Ir para Loja', callback_data: 'IR_PARA_LOJA' } ]
         ]
       }
@@ -180,7 +180,7 @@ Favor, selecione o serviços logo abaixo:`,
 
 /*
 ====================================
-FUNÇÕES DE CATEGORIAS (CRIAR / DELETAR) ✅ NOVO
+FUNÇÕES DE CATEGORIAS (CRIAR / DELETAR)
 ====================================
 */
 async function criarCategoria(nomeCompleto) {
@@ -205,7 +205,7 @@ async function listarCategorias() {
 
 /*
 ====================================
-FUNÇÃO GERAR PAGAMENTO
+FUNÇÃO GERAR PAGAMENTO (CORRIGIDA!) ✅
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
@@ -218,12 +218,15 @@ async function gerarPagamento(chatId, produto) {
       return bot.sendMessage(chatId, '❌ Produto esgotado no momento!');
     }
 
+    // ✅ CORREÇÃO PRINCIPAL: EMAIL VÁLIDO E AJUSTES NA CRIAÇÃO
     const pagamento = await Payment.create({
       transaction_amount: produto.valor,
       description: `Compra: ${produto.nome}`,
       external_reference: `${chatId}_${produto.id}`,
       payment_method_id: 'pix',
-      payer: { email: 'cliente@sellforge.com.br' },
+      payer: {
+        email: `usuario_${chatId}@sellforge.com.br` // EMAIL ÚNICO E VÁLIDO PARA CADA PAGAMENTO
+      },
       notification_url: process.env.WEBHOOK_URL + '/webhook/mercadopago'
     });
 
@@ -251,8 +254,9 @@ ${codigoCopiaCola}
     });
 
   } catch (error) {
-    console.log('❌ Erro:', error);
-    bot.sendMessage(chatId, '❌ Erro ao gerar pagamento.');
+    // ✅ ADICIONADO PARA MOSTRAR O ERRO EXATO NOS LOGS DA RENDER
+    console.log('❌ ERRO DETALHADO AO GERAR PAGAMENTO:', error.response ? error.response.data : error.message);
+    bot.sendMessage(chatId, '❌ Erro ao gerar pagamento. (Verifique o Token do Mercado Pago ou os Logs)');
   }
 }
 
@@ -272,7 +276,7 @@ bot.on('message', async (msg) => {
   }
 
   // ======================================
-  // 🟢 ETAPA DE CRIAR/DELETAR CATEGORIA ✅ NOVO
+  // 🟢 ETAPA DE CRIAR/DELETAR CATEGORIA
   // ======================================
   if (etapaCategoria[chatId]) {
     const etapa = etapaCategoria[chatId].etapa;
@@ -412,7 +416,6 @@ bot.on('callback_query', async (query) => {
       });
     }
 
-    // ✅ MENU CATEGORIAS (NOVO)
     if (query.data === 'MENU_CATEGORIAS') {
       return bot.sendMessage(chatId, '📂 *GERENCIAR CATEGORIAS*', {
         parse_mode: 'Markdown',
@@ -447,7 +450,7 @@ Favor, selecione o serviços logo abaixo:`,
     }
 
     // ======================================
-    // 🟢 AÇÕES CATEGORIAS ✅ NOVO
+    // 🟢 AÇÕES CATEGORIAS
     // ======================================
     if (query.data === 'CRIAR_CATEGORIA') {
       etapaCategoria[chatId] = { etapa: 'criar' };
@@ -489,14 +492,12 @@ Favor, selecione o serviços logo abaixo:`,
       return bot.sendMessage(chatId, '📸 1/8 - Envie a IMAGEM do produto:');
     }
 
-    // 🟢 ADMIN: CATEGORIA ESCOLHIDA E FINALIZA CADASTRO
     if (query.data.startsWith('CAT_ESCOLHIDA_')) {
       const categoriaEscolhida = query.data.split('_')[2];
       if (!etapaCadastro[chatId]) return;
 
       etapaCadastro[chatId].dados.categoria = categoriaEscolhida;
 
-      // SALVA NO BANCO
       await db.collection('produtos').add(etapaCadastro[chatId].dados);
 
       bot.sendMessage(chatId, 
@@ -510,7 +511,6 @@ Favor, selecione o serviços logo abaixo:`,
       return bot.answerCallbackQuery(query.id);
     }
 
-    // 🟢 ADMIN: LISTAR
     if (query.data === 'LISTAR_PRODUTOS') {
       const snapshot = await db.collection('produtos').get();
       if (snapshot.empty) return bot.sendMessage(chatId, '❌ Nenhum produto cadastrado.');
@@ -562,22 +562,18 @@ Favor, selecione o serviços logo abaixo:`,
       });
     }
 
-    // 📶 STATUS PING
     if (query.data === 'VER_PING') {
       return bot.sendMessage(chatId, `📶 *Status do Sistema*\n\n${pingAtual}ms em tempo real`, {parse_mode:'Markdown'});
     }
 
-    // 👤 INFO DONO
     if (query.data === 'INFO_DONO') {
       return bot.sendMessage(chatId, `👤 *Informações do Dono*\n\nSellForge - Faelzin Vendas`, {parse_mode:'Markdown'});
     }
 
-    // ℹ️ INFO VERSAO
     if (query.data === 'INFO_VERSAO') {
       return bot.sendMessage(chatId, `ℹ️ *Informações da Versão*\n\nMercado pago Max Pay`, {parse_mode:'Markdown'});
     }
 
-    // 📞 SUPORTE
     if (query.data === 'SUPORTE') {
       return bot.sendMessage(chatId, `📞 *Suporte*\n\n51981528372`, {parse_mode:'Markdown'});
     }
@@ -620,7 +616,6 @@ Favor, selecione o serviços logo abaixo:`,
       const produto = produtoDoc.data();
       produto.id = produtoId;
 
-      // MOSTRA IMAGEM E DETALHES
       await bot.sendPhoto(chatId, produto.img_produto, {
         caption: 
 `📦 *${produto.nome}*
