@@ -19,7 +19,7 @@ const bot = new TelegramBot(
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
 // ⚠️ COLE AQUI O LINK DA IMAGEM DO /START
-const IMAGEM_INICIAL = "https://imgbox.com/oHOjbfWZ"; //
+const IMAGEM_INICIAL = "https://seu-link-da-imagem-aqui.jpg"; // 👈 COLOQUE SEU LINK AQUI
 
 // Configuração Render
 app.use(express.json({ limit: '5mb' }));
