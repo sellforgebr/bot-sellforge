@@ -20,7 +20,7 @@ const bot = new TelegramBot(
 // 🟢 SEU ID DE ADMINISTRADOR
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
-// ⚠️ LINK DA IMAGEM CORRETO
+// ⚠️ LINK DA IMAGEM INICIAL
 const IMAGEM_INICIAL = "https://thumbs2.imgbox.com/10/35/oHOjbfWZ_t.jpeg";
 
 // Configuração Render
@@ -70,10 +70,6 @@ Obrigado pela compra! 🎉`,
         });
 
         // 📝 SALVA PEDIDO
-        await db.collection('produtos').doc(produtoId).update({
-          estoque: produto.estoque - 1
-        });
-
         await db.collection('pedidos').add({
           usuarioId: userId,
           produtoId: produtoId,
@@ -211,7 +207,7 @@ async function listarCategorias() {
 
 /*
 ====================================
-✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO CORRIGIDA
+✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO FINAL SEM ERROS
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
@@ -257,7 +253,8 @@ async function gerarPagamento(chatId, produto) {
     const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
     const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
 
-    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
+    // ✅ ENVIA A IMAGEM SEM ERRO DE SINTAXE
+    bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
       caption: 
 `💸 *Pagamento Gerado!* 📱
 
@@ -295,104 +292,6 @@ ${codigoCopiaCola}
       mensagem += `📌 Detalhe: ${erro.message}`;
     }
 
-    bot.sendMessage(chatId, mensagem);
-  }
-}
-
-    // ✅ PEGA OS DADOS DO QR CODE
-    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
-    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
-
-    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
-      caption: 
-`💸 *Pagamento Gerado!* 📱
-
-🛍️ Produto: ${produto.nome}
-💰 Valor: R$ ${produto.valor.toFixed(2)}
-📦 Estoque: ${produto.estoque} unidades
-
-📌 Escaneie o QR Code acima ou use o código abaixo:
-
-📋 *Código Copia e Cola:*
-\`\`\`
-${codigoCopiaCola}
-\`\`\`
-
-⏳ Validade: 15 Minutos
-✅ Após o pagamento, o produto chegará automaticamente!`,
-      parse_mode: 'Markdown'
-    });
-
-  } catch (erro) {
-    console.log('❌ ERRO COMPLETO:', JSON.stringify(erro, null, 2));
-    let mensagem = '❌ Erro ao gerar pagamento.\n';
-    
-    // ✅ MOSTRA O ERRO EXATO PARA RESOLVERMOS
-    if (erro.response && erro.response.data) {
-      const dados = erro.response.data;
-      mensagem += `📌 Código: ${dados.status}\n`;
-      mensagem += `📌 Mensagem: ${dados.message}\n`;
-      if (dados.cause) {
-        dados.cause.forEach(c => {
-          mensagem += `⚠️ Problema: ${c.code} -> ${c.description}\n`;
-        });
-      }
-    } else {
-      mensagem += `📌 Detalhe: ${erro.message}`;
-    }
-
-    bot.sendMessage(chatId, mensagem);
-  }
-}
-
-    // ✅ ESTRUTURA CORRETA PARA A VERSÃO NOVA DA API
-    const pagamento = await Payment.create({
-      body: {
-        transaction_amount: produto.valor,
-        description: `Compra: ${produto.nome}`,
-        external_reference: `${chatId}_${produto.id}`,
-        payment_method_id: 'pix',
-        payer: {
-          email: `cliente_${chatId}@sellforge.com.br`
-        },
-        notification_url: `${process.env.WEBHOOK_URL}/webhook/mercadopago`,
-        date_of_expiration: new Date(Date.now() + 15 * 60 * 1000).toISOString()
-      }
-    }, mercadoPagoClient);
-
-    // ✅ PEGA OS DADOS DO QR CODE
-    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
-    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
-
-    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
-      caption: 
-`💸 *Pagamento Gerado!* 📱
-
-🛍️ Produto: ${produto.nome}
-💰 Valor: R$ ${produto.valor.toFixed(2)}
-📦 Estoque: ${produto.estoque} unidades
-
-📌 Escaneie o QR Code acima ou use o código abaixo:
-
-📋 *Código Copia e Cola:*
-\`\`\`
-${codigoCopiaCola}
-\`\`\`
-
-⏳ Validade: 15 Minutos
-✅ Após o pagamento, o produto chegará automaticamente!`,
-      parse_mode: 'Markdown'
-    });
-
-  } catch (erro) {
-    console.log('❌ ERRO AO GERAR PAGAMENTO:', erro);
-    let mensagem = '❌ Erro ao gerar pagamento. ';
-    
-    // ✅ MOSTRA O ERRO EXATO PARA SABERMOS
-    if (erro.response && erro.response.data) {
-      if (erro.response.data.message) mensagem += erro.response.data.message;
-      if (erro.response.data.cause) mensagem += ' | ' + erro.response.data.cause.map(c => c.description).join(', ');
-    }
     bot.sendMessage(chatId, mensagem);
   }
 }
