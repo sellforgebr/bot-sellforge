@@ -211,18 +211,93 @@ async function listarCategorias() {
 
 /*
 ====================================
-✅ FUNÇÃO GERAR PAGAMENTO 100% FUNCIONAL
+✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO DIAGNÓSTICO
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
   try {
+    // 🛑 VERIFICA SE TEM WEBHOOK
     if (!process.env.WEBHOOK_URL) {
-      return bot.sendMessage(chatId, '❌ Sistema de pagamento não configurado. Avise o administrador!');
+      return bot.sendMessage(chatId, '❌ ERRO: Variável WEBHOOK_URL não configurada na Render!');
     }
 
+    // 🛑 VERIFICA SE TEM TOKEN
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      return bot.sendMessage(chatId, '❌ ERRO: Token do Mercado Pago não configurado!');
+    }
+
+    // 🛑 VERIFICA ESTOQUE
     if (produto.estoque <= 0) {
       return bot.sendMessage(chatId, '❌ Produto esgotado no momento!');
     }
+
+    // 🛑 VERIFICA VALOR MÍNIMO (Mercado Pago não aceita abaixo de R$0,05 em produção)
+    if (produto.valor < 0.05) {
+      return bot.sendMessage(chatId, '❌ Valor muito baixo! Mínimo é R$0,05. Altere o valor do produto.');
+    }
+
+    console.log('📌 Tentando gerar pagamento para:', produto.nome, 'Valor:', produto.valor);
+
+    // ✅ ESTRUTURA CORRETA PARA A VERSÃO NOVA DA API
+    const pagamento = await Payment.create({
+      body: {
+        transaction_amount: produto.valor,
+        description: `Compra: ${produto.nome}`,
+        external_reference: `${chatId}_${produto.id}`,
+        payment_method_id: 'pix',
+        payer: {
+          email: `cliente_${chatId}@sellforge.com.br`
+        },
+        notification_url: `${process.env.WEBHOOK_URL}/webhook/mercadopago`,
+        date_of_expiration: new Date(Date.now() + 15 * 60 * 1000).toISOString()
+      }
+    }, mercadoPagoClient);
+
+    // ✅ PEGA OS DADOS DO QR CODE
+    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
+    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
+
+    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
+      caption: 
+`💸 *Pagamento Gerado!* 📱
+
+🛍️ Produto: ${produto.nome}
+💰 Valor: R$ ${produto.valor.toFixed(2)}
+📦 Estoque: ${produto.estoque} unidades
+
+📌 Escaneie o QR Code acima ou use o código abaixo:
+
+📋 *Código Copia e Cola:*
+\`\`\`
+${codigoCopiaCola}
+\`\`\`
+
+⏳ Validade: 15 Minutos
+✅ Após o pagamento, o produto chegará automaticamente!`,
+      parse_mode: 'Markdown'
+    });
+
+  } catch (erro) {
+    console.log('❌ ERRO COMPLETO:', JSON.stringify(erro, null, 2));
+    let mensagem = '❌ Erro ao gerar pagamento.\n';
+    
+    // ✅ MOSTRA O ERRO EXATO PARA RESOLVERMOS
+    if (erro.response && erro.response.data) {
+      const dados = erro.response.data;
+      mensagem += `📌 Código: ${dados.status}\n`;
+      mensagem += `📌 Mensagem: ${dados.message}\n`;
+      if (dados.cause) {
+        dados.cause.forEach(c => {
+          mensagem += `⚠️ Problema: ${c.code} -> ${c.description}\n`;
+        });
+      }
+    } else {
+      mensagem += `📌 Detalhe: ${erro.message}`;
+    }
+
+    bot.sendMessage(chatId, mensagem);
+  }
+}
 
     // ✅ ESTRUTURA CORRETA PARA A VERSÃO NOVA DA API
     const pagamento = await Payment.create({
