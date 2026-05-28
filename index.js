@@ -10,7 +10,10 @@ const app = express();
 // ======================================
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const ADMIN_ID = Number(process.env.ADMIN_ID); // 🔴 COLOQUE SEU ID TELEGRAM AQUI
-const IMG_LOGO = "https://seu-link-de-imagem.jpg"; // 🔴 COLOQUE SEU LINK DE IMAGEM (JPG/PNG)
+const IMG_LOGO = "https://imgbox.com/oHOjbfWZ"; // 🔴 COLOQUE SEU LINK DE IMAGEM (JPG/PNG)
+
+// 🟢 AGORA O BOT É CRIADO AQUI, ANTES DE SER USADO!
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // 🛡️ SISTEMA DE SEGURANÇA - SUAS REGRAS
 const PALAVROES_PROIBIDOS = ["palavrao1", "palavrao2", "ofensa", "xingamento"]; // 🔴 ADICIONE OUTRAS SE QUISER
