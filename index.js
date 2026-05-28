@@ -20,7 +20,7 @@ const bot = new TelegramBot(
 // 🟢 SEU ID DE ADMINISTRADOR
 const ADMIN_ID = Number(process.env.ADMIN_ID);
 
-// ⚠️ LINK DA IMAGEM
+// ⚠️ LINK DA IMAGEM CORRETO
 const IMAGEM_INICIAL = "https://thumbs2.imgbox.com/10/35/oHOjbfWZ_t.jpeg";
 
 // Configuração Render
@@ -70,6 +70,10 @@ Obrigado pela compra! 🎉`,
         });
 
         // 📝 SALVA PEDIDO
+        await db.collection('produtos').doc(produtoId).update({
+          estoque: produto.estoque - 1
+        });
+
         await db.collection('pedidos').add({
           usuarioId: userId,
           produtoId: produtoId,
