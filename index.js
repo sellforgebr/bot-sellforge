@@ -4,14 +4,14 @@ const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./firebase');
 
-// 🟢 CORREÇÃO DO MERCADO PAGO PARA FUNCIONAR 100%
-const mercadopago = require('mercadopago');
+// 🟢 VERSÃO NOVA CORRETA (compatível com o que está instalado)
+const { MercadoPagoConfig, Payment } = require('mercadopago');
 
 const app = express();
 
-// 🟢 INICIALIZAÇÃO CORRETA
-mercadopago.configure({
-  access_token: process.env.MERCADOPAGO_ACCESS_TOKEN
+// 🟢 INICIALIZAÇÃO CERTA PARA VERSÃO NOVA
+const mercadoPagoClient = new MercadoPagoConfig({
+  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
 });
 
 const bot = new TelegramBot(
@@ -41,10 +41,10 @@ app.post('/webhook/mercadopago', async (req, res) => {
     const { topic, id } = req.body;
 
     if (topic === 'payment') {
-      const pagamento = await mercadopago.payment.get(id);
+      const pagamento = await Payment.get({ id: id }, mercadoPagoClient);
       
-      if (pagamento.body.status === 'approved') {
-        const { external_reference } = pagamento.body;
+      if (pagamento.status === 'approved') {
+        const { external_reference } = pagamento;
         const [userId, produtoId] = external_reference.split('_');
 
         const produtoDoc = await db.collection('produtos').doc(produtoId).get();
@@ -76,7 +76,7 @@ Obrigado pela compra! 🎉`,
           usuarioId: userId,
           produtoId: produtoId,
           pagamentoId: id,
-          valor: pagamento.body.transaction_amount,
+          valor: pagamento.transaction_amount,
           data: Date.now(),
           status: 'aprovado'
         });
@@ -209,7 +209,7 @@ async function listarCategorias() {
 
 /*
 ====================================
-✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO CORRIGIDA DEFINITIVA
+✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO FINAL CORRIGIDA
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
@@ -231,8 +231,8 @@ async function gerarPagamento(chatId, produto) {
 
     console.log('📌 Tentando gerar pagamento para:', produto.nome, 'Valor:', produto.valor);
 
-    // ✅ ESTRUTURA ANTIGA (QUE FUNCIONA EM TODAS AS VERSÕES)
-    const pagamento = await mercadopago.payment.create({
+    // ✅ ESTRUTURA CERTA PARA VERSÃO NOVA
+    const pagamento = await Payment.create({
       body: {
         transaction_amount: produto.valor,
         description: `Compra: ${produto.nome}`,
@@ -244,11 +244,11 @@ async function gerarPagamento(chatId, produto) {
         notification_url: `${process.env.WEBHOOK_URL}/webhook/mercadopago`,
         date_of_expiration: new Date(Date.now() + 15 * 60 * 1000).toISOString()
       }
-    });
+    }, mercadoPagoClient);
 
     // ✅ PEGA OS DADOS DO QR CODE
-    const qrCodeImagem = pagamento.body.point_of_interaction.transaction_data.qr_code_image;
-    const codigoCopiaCola = pagamento.body.point_of_interaction.transaction_data.qr_code;
+    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
+    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
 
     // ✅ ENVIA A IMAGEM
     bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
@@ -276,10 +276,12 @@ ${codigoCopiaCola}
     let mensagem = '❌ Erro ao gerar pagamento.\n';
     
     if (erro.response && erro.response.data) {
-      mensagem += `📌 Mensagem: ${erro.response.data.message}\n`;
-      if (erro.response.data.cause) {
-        erro.response.data.cause.forEach(c => {
-          mensagem += `⚠️ Problema: ${c.description}\n`;
+      const dados = erro.response.data;
+      mensagem += `📌 Código: ${dados.status}\n`;
+      mensagem += `📌 Mensagem: ${dados.message}\n`;
+      if (dados.cause) {
+        dados.cause.forEach(c => {
+          mensagem += `⚠️ Problema: ${c.code} -> ${c.description}\n`;
         });
       }
     } else {
