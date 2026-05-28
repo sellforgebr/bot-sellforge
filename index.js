@@ -211,7 +211,7 @@ async function listarCategorias() {
 
 /*
 ====================================
-✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO DIAGNÓSTICO
+✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO CORRIGIDA
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
@@ -252,6 +252,52 @@ async function gerarPagamento(chatId, produto) {
         date_of_expiration: new Date(Date.now() + 15 * 60 * 1000).toISOString()
       }
     }, mercadoPagoClient);
+
+    // ✅ PEGA OS DADOS DO QR CODE
+    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
+    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
+
+    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
+      caption: 
+`💸 *Pagamento Gerado!* 📱
+
+🛍️ Produto: ${produto.nome}
+💰 Valor: R$ ${produto.valor.toFixed(2)}
+📦 Estoque: ${produto.estoque} unidades
+
+📌 Escaneie o QR Code acima ou use o código abaixo:
+
+📋 *Código Copia e Cola:*
+\`\`\`
+${codigoCopiaCola}
+\`\`\`
+
+⏳ Validade: 15 Minutos
+✅ Após o pagamento, o produto chegará automaticamente!`,
+      parse_mode: 'Markdown'
+    });
+
+  } catch (erro) {
+    console.log('❌ ERRO COMPLETO:', JSON.stringify(erro, null, 2));
+    let mensagem = '❌ Erro ao gerar pagamento.\n';
+    
+    // ✅ MOSTRA O ERRO EXATO PARA RESOLVERMOS
+    if (erro.response && erro.response.data) {
+      const dados = erro.response.data;
+      mensagem += `📌 Código: ${dados.status}\n`;
+      mensagem += `📌 Mensagem: ${dados.message}\n`;
+      if (dados.cause) {
+        dados.cause.forEach(c => {
+          mensagem += `⚠️ Problema: ${c.code} -> ${c.description}\n`;
+        });
+      }
+    } else {
+      mensagem += `📌 Detalhe: ${erro.message}`;
+    }
+
+    bot.sendMessage(chatId, mensagem);
+  }
+}
 
     // ✅ PEGA OS DADOS DO QR CODE
     const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
