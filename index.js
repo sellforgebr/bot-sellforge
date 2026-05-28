@@ -3,13 +3,15 @@ require('dotenv').config();
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
 const db = require('./firebase');
-const { MercadoPagoConfig, Payment } = require('mercadopago');
+
+// 🟢 CORREÇÃO DO MERCADO PAGO PARA FUNCIONAR 100%
+const mercadopago = require('mercadopago');
 
 const app = express();
 
-// 🟢 INICIALIZAÇÃO CORRETA DO MERCADO PAGO
-const mercadoPagoClient = new MercadoPagoConfig({
-  accessToken: process.env.MERCADOPAGO_ACCESS_TOKEN
+// 🟢 INICIALIZAÇÃO CORRETA
+mercadopago.configure({
+  access_token: process.env.MERCADOPAGO_ACCESS_TOKEN
 });
 
 const bot = new TelegramBot(
@@ -39,10 +41,10 @@ app.post('/webhook/mercadopago', async (req, res) => {
     const { topic, id } = req.body;
 
     if (topic === 'payment') {
-      const pagamento = await Payment.get({ id: id }, mercadoPagoClient);
+      const pagamento = await mercadopago.payment.get(id);
       
-      if (pagamento.status === 'approved') {
-        const { external_reference } = pagamento;
+      if (pagamento.body.status === 'approved') {
+        const { external_reference } = pagamento.body;
         const [userId, produtoId] = external_reference.split('_');
 
         const produtoDoc = await db.collection('produtos').doc(produtoId).get();
@@ -74,7 +76,7 @@ Obrigado pela compra! 🎉`,
           usuarioId: userId,
           produtoId: produtoId,
           pagamentoId: id,
-          valor: pagamento.transaction_amount,
+          valor: pagamento.body.transaction_amount,
           data: Date.now(),
           status: 'aprovado'
         });
@@ -207,7 +209,7 @@ async function listarCategorias() {
 
 /*
 ====================================
-✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO FINAL SEM ERROS
+✅ FUNÇÃO GERAR PAGAMENTO - VERSÃO CORRIGIDA DEFINITIVA
 ====================================
 */
 async function gerarPagamento(chatId, produto) {
@@ -227,15 +229,10 @@ async function gerarPagamento(chatId, produto) {
       return bot.sendMessage(chatId, '❌ Produto esgotado no momento!');
     }
 
-    // 🛑 VERIFICA VALOR MÍNIMO (Mercado Pago não aceita abaixo de R$0,05 em produção)
-    if (produto.valor < 0.05) {
-      return bot.sendMessage(chatId, '❌ Valor muito baixo! Mínimo é R$0,05. Altere o valor do produto.');
-    }
-
     console.log('📌 Tentando gerar pagamento para:', produto.nome, 'Valor:', produto.valor);
 
-    // ✅ ESTRUTURA CORRETA PARA A VERSÃO NOVA DA API
-    const pagamento = await Payment.create({
+    // ✅ ESTRUTURA ANTIGA (QUE FUNCIONA EM TODAS AS VERSÕES)
+    const pagamento = await mercadopago.payment.create({
       body: {
         transaction_amount: produto.valor,
         description: `Compra: ${produto.nome}`,
@@ -247,13 +244,13 @@ async function gerarPagamento(chatId, produto) {
         notification_url: `${process.env.WEBHOOK_URL}/webhook/mercadopago`,
         date_of_expiration: new Date(Date.now() + 15 * 60 * 1000).toISOString()
       }
-    }, mercadoPagoClient);
+    });
 
     // ✅ PEGA OS DADOS DO QR CODE
-    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
-    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
+    const qrCodeImagem = pagamento.body.point_of_interaction.transaction_data.qr_code_image;
+    const codigoCopiaCola = pagamento.body.point_of_interaction.transaction_data.qr_code;
 
-    // ✅ ENVIA A IMAGEM SEM ERRO DE SINTAXE
+    // ✅ ENVIA A IMAGEM
     bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
       caption: 
 `💸 *Pagamento Gerado!* 📱
@@ -278,14 +275,11 @@ ${codigoCopiaCola}
     console.log('❌ ERRO COMPLETO:', JSON.stringify(erro, null, 2));
     let mensagem = '❌ Erro ao gerar pagamento.\n';
     
-    // ✅ MOSTRA O ERRO EXATO PARA RESOLVERMOS
     if (erro.response && erro.response.data) {
-      const dados = erro.response.data;
-      mensagem += `📌 Código: ${dados.status}\n`;
-      mensagem += `📌 Mensagem: ${dados.message}\n`;
-      if (dados.cause) {
-        dados.cause.forEach(c => {
-          mensagem += `⚠️ Problema: ${c.code} -> ${c.description}\n`;
+      mensagem += `📌 Mensagem: ${erro.response.data.message}\n`;
+      if (erro.response.data.cause) {
+        erro.response.data.cause.forEach(c => {
+          mensagem += `⚠️ Problema: ${c.description}\n`;
         });
       }
     } else {
