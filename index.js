@@ -1,301 +1,382 @@
 require('dotenv').config();
+
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
-const db = require('./firebase'); // MANTÉM SEU FIREBASE AQUI
+const db = require('./firebase');
+const client = require('./mercadopago');
+const { Payment } = require('mercadopago');
 
 const app = express();
 
-// ======================================
-// ⚙️ CONFIGURAÇÕES GERAIS
-// ======================================
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_ID = Number(process.env.ADMIN_ID); // 🔴 COLOQUE SEU ID TELEGRAM AQUI
-const IMG_LOGO = "https://imgbox.com/oHOjbfWZ"; // 🔴 COLOQUE SEU LINK DE IMAGEM (JPG/PNG)
-
-// 🟢 AGORA O BOT É CRIADO AQUI, ANTES DE SER USADO!
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
-
-// 🛡️ SISTEMA DE SEGURANÇA - SUAS REGRAS
-const PALAVROES_PROIBIDOS = ["palavrao1", "palavrao2", "ofensa", "xingamento"]; // 🔴 ADICIONE OUTRAS SE QUISER
-const LIMITE_COMANDOS_DIARIO = 50;
-let contadorComandos = {};
-let bloqueados = {};
-
-// 📌 ETAPAS DO SISTEMA
-let etapaUsuario = {};
-
-// ======================================
-// 🛡️ FUNÇÃO DE SEGURANÇA COMPLETA
-// ======================================
-function verificarSeguranca(texto, chatId, nome = "") {
-  // 🔴 LIMITE DE COMANDOS
-  if (!contadorComandos[chatId]) contadorComandos[chatId] = 0;
-  contadorComandos[chatId]++;
-  if (contadorComandos[chatId] > LIMITE_COMANDOS_DIARIO) {
-    bot.sendMessage(chatId, "❌ Você atingiu limite diário de comandos!");
-    return false;
+const bot = new TelegramBot(
+  process.env.BOT_TOKEN,
+  {
+    polling: true
   }
+);
 
-  // 🔴 ANTI-PALAVRÃO - NÍVEL HARD
-  const textoMinusculo = texto.toLowerCase();
-  if (PALAVROES_PROIBIDOS.some(palavra => textoMinusculo.includes(palavra))) {
-    bot.sendMessage(chatId, "⚠️ Sistema sensível detectado: palavras inadequadas ❌");
-    return false;
-  }
+// Configuração essencial para a Render receber os dados
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-  // 🔴 ANTI-LINK E COMPARTILHAMENTO - HARD DETECT
-  if (/https?:\/\/|t\.me|@|www\./gi.test(texto)) {
-    bot.sendMessage(chatId, "🚫 Detectamos link ou compartilhamento não oficial ❌");
-    return false;
-  }
-
-  // 🔴 ANTI-APELIDO INADEQUADO - HARD DETECT
-  if (nome && /[^\w\sáéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]/gi.test(nome)) {
-    bot.sendMessage(chatId, "⚠️ Detectamos apelidos inapropriados ❌");
-    return false;
-  }
-
-  return true;
-}
-
-// ======================================
-// 🚀 INICIO DO BOT /START
-// ======================================
-bot.onText(/\/start/, async (msg) => {
-  const chatId = msg.chat.id;
-  const nomeUsuario = msg.from.first_name || "Usuário";
-
-  // ✅ VERIFICA SEGURANÇA
-  if (!verificarSeguranca("inicio", chatId, nomeUsuario)) return;
-
-  // 📩 MENSAGEM DE BOAS VINDAS
-  await bot.sendPhoto(chatId, IMG_LOGO, {
-    caption: `👋 Olá ${nomeUsuario}, sou seu assistente virtual, como posso lhe ajudar? Confira nosso menu atualizado.
-
-📌 *Informações*:
-👤 Criador: Faelzin criador oficial prompt
-📞 WhatsApp: 55 51 98152-8372
-🆔 Seu ID: \`${chatId}\`
-
-📋 *Menu Atualizado*:`,
-    parse_mode: "Markdown",
-    reply_markup: {
-      inline_keyboard: [
-        [{ text: "🛍️ Produtos", callback_data: "menu_produtos" }],
-        [{ text: "📞 Suporte", callback_data: "menu_suporte" }],
-        [{ text: "ℹ️ Informações Bot", callback_data: "menu_bot" }],
-        [{ text: "👤 Informações Dono", callback_data: "menu_dono" }],
-        [{ text: "📂 Categorias", callback_data: "menu_categorias" }],
-        [{ text: "⚡ Comandos Limite", callback_data: "menu_limite" }]
-      ]
-    }
-  });
+// Página inicial para testar se está online
+app.get('/', (req, res) => {
+  res.send('🚀 SellForge Online e funcionando na Render! ✅');
 });
 
 // ======================================
-// 📂 FUNÇÕES DE BANCO DE DADOS (FIREBASE)
+// ROTA PRINCIPAL DE RECEBIMENTO DO MP
 // ======================================
-async function listarCategorias() {
-  const snap = await db.collection("categorias").orderBy("nome", "asc").get();
-  let lista = [];
-  snap.forEach(doc => lista.push({ id: doc.id, ...doc.data() }));
-  return lista;
-}
-
-async function listarProdutosPorCategoria(idCategoria) {
-  const snap = await db.collection("produtos").where("categoria", "==", idCategoria).get();
-  let lista = [];
-  snap.forEach(doc => lista.push({ id: doc.id, ...doc.data() }));
-  return lista;
-}
-
-async function pegarProdutoPorId(idProduto) {
-  const doc = await db.collection("produtos").doc(idProduto).get();
-  return doc.exists ? { id: doc.id, ...doc.data() } : null;
-}
-
-// ======================================
-// 📩 RECEBER MENSAGENS DO USUÁRIO
-// ======================================
-bot.on("message", async (msg) => {
-  const chatId = msg.chat.id;
-  const texto = msg.text || "";
-
-  // ❌ IGNORA COMANDOS
-  if (texto.startsWith("/")) return;
-
-  // ✅ SEGURANÇA
-  if (!verificarSeguranca(texto, chatId)) return;
-
-  // ======================================
-  // 🟑 ÁREA DO ADMIN - LIBERAÇÃO MANUAL
-  // FORMATO PARA ENVIAR:  ID_DO_CLIENTE | LINK_DO_PRODUTO
-  // ======================================
-  if (chatId === ADMIN_ID && texto.includes("|")) {
-    const partes = texto.split("|").map(p => p.trim());
-    const idCliente = partes[0];
-    const linkEntrega = partes[1];
-
-    if (idCliente && linkEntrega) {
-      // ✅ ENVIA PRODUTO PARA O CLIENTE
-      await bot.sendMessage(idCliente, `✅ *PRODUTO ENVIADO COM SUCESSO* ✔️
-
-🔗 Link de Entrega:
-${linkEntrega}
-
-Obrigado pela sua preferência! 🎉
-*official creator Prompt - Faelzin*`, { parse_mode: "Markdown" });
-
-      // ✅ CONFIRMA PARA VOCÊ
-      return bot.sendMessage(ADMIN_ID, "📨 Entrega realizada com sucesso para o cliente! ✅");
-    } else {
-      // ❌ DADOS FALTANDO
-      return bot.sendMessage(ADMIN_ID, "❌ Informações incompletas ou não preenchidas!\n\nFormato correto:\n`ID | LINK`", { parse_mode: "Markdown" });
-    }
-  }
-
-  // ======================================
-  // 🧑‍🤝‍🧑 ÁREA DO CLIENTE - ENVIO DE COMPROVANTE
-  // ======================================
-  if (etapaUsuario[chatId]?.etapa === "aguardar_comprovante") {
-    const produto = etapaUsuario[chatId].produto;
-
-    // ✅ AVISA O CLIENTE
-    await bot.sendMessage(chatId, `✅ *Informações recebidas!*
-
-📌 Lembre-se: compre somente comigo e evitem golpes, fraudes!
-
-Aguarde enquanto verificamos o pagamento, em breve seu produto será liberado! 🕒`);
-
-    // ✅ AVISA VOCÊ (ADMIN) PARA LIBERAR
-    await bot.sendMessage(ADMIN_ID, `📥 *NOVA SOLICITAÇÃO DE PRODUTO*
-
-🆔 Cliente ID: \`${chatId}\`
-🛍️ Produto: *${produto.nome}*
-💰 Valor: R$ ${produto.valor.toFixed(2)}
-
-📄 Comprovante/Informações:
-${texto || "Imagem enviada"}
-
-➡️ Para liberar, envie aqui:
-\`${chatId} | LINK_DO_PRODUTO\`
-`, { parse_mode: "Markdown" });
-
-    // 🧹 LIMPA ETAPA
-    delete etapaUsuario[chatId];
-  }
-});
-
-// ======================================
-// 🎛️ AÇÕES DOS BOTÕES
-// ======================================
-bot.on("callback_query", async (query) => {
-  const chatId = query.message.chat.id;
-  const acao = query.data;
-
-  // ✅ SEGURANÇA
-  if (!verificarSeguranca(acao, chatId)) return;
-
+app.post('/webhook/mercadopago', async (req, res) => {
   try {
-    // 📂 MENU CATEGORIAS
-    if (acao === "menu_categorias") {
-      const categorias = await listarCategorias();
-      if (categorias.length === 0) return bot.sendMessage(chatId, "❌ Nenhuma categoria cadastrada!");
+    const { topic, id } = req.body;
 
-      const botoes = categorias.map(cat => [{ text: cat.nome, callback_data: `cat_${cat.id}` }]);
-      return bot.sendMessage(chatId, "📂 *Selecione a Categoria desejada:*", {
-        parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: botoes }
-      });
-    }
+    if (topic === 'payment') {
+      // Busca os dados completos do pagamento
+      const payment = await Payment.get({ id: id });
+      
+      // Se o pagamento foi aprovado
+      if (payment.status === 'approved') {
+        // Separa o ID do usuário e o ID do produto que enviamos na criação
+        const { external_reference } = payment;
+        const [userId, produtoId] = external_reference.split('_');
 
-    // 🛍️ LISTAR PRODUTOS DE UMA CATEGORIA
-    if (acao.startsWith("cat_")) {
-      const idCat = acao.split("_")[1];
-      const produtos = await listarProdutosPorCategoria(idCat);
+        // Busca o produto no banco de dados
+        const produtoDoc = await db.collection('produtos').doc(produtoId).get();
+        if (!produtoDoc.exists) return res.sendStatus(404);
 
-      if (produtos.length === 0) return bot.sendMessage(chatId, "❌ Nenhum produto cadastrado nessa categoria!");
+        const produto = produtoDoc.data();
 
-      // 📤 MOSTRA TODOS OS PRODUTOS
-      for (const prod of produtos) {
-        const mensagem = `📦 *${prod.nome}*
+        // 🚀 ENTREGA O PRODUTO PARA O USUÁRIO
+        await bot.sendMessage(userId, 
+`✅ *PAGAMENTO APROVADO COM SUCESSO!* ✅
 
-📝 Descrição: ${prod.descricao || "Sem descrição"}
-💰 Valor: R$ ${prod.valor.toFixed(2)}
-📦 Estoque: ${prod.estoque || "Indisponível"}
-🎬 Vídeo: ${prod.video || "Não incluso"}
-📞 WhatsApp: 55 51 98152-8372
+📦 Seu produto: *${produto.nome}*
 
-🆔 Seu ID: \`${chatId}\`
+📝 Conteúdo:
+${produto.conteudo}
 
-⚠️ *Aviso*: Lembre-se compre somente comigo e evitem golpes, fraudes!`;
+💵 Valor pago: R$ ${payment.transaction_amount.toFixed(2)}
 
-        await bot.sendPhoto(chatId, prod.img, {
-          caption: mensagem,
-          parse_mode: "Markdown",
-          reply_markup: {
-            inline_keyboard: [[
-              { text: "📩 Enviar Comprovante / Solicitar", callback_data: `comprar_${prod.id}` }
-            ]]
-          }
+Obrigado pela compra! 🎉`, 
+{ parse_mode: 'Markdown' });
+        
+        // 📝 SALVA O PEDIDO NO HISTÓRICO
+        await db.collection('pedidos').add({
+          usuarioId: userId,
+          produtoId: produtoId,
+          pagamentoId: id,
+          valor: payment.transaction_amount,
+          data: Date.now(),
+          status: 'aprovado'
         });
       }
-      return;
     }
 
-    // 📥 CLIENTE QUER COMPRAR / SOLICITAR
-    if (acao.startsWith("comprar_")) {
-      const idProd = acao.split("_")[1];
-      const produto = await pegarProdutoPorId(idProd);
-      if (!produto) return bot.sendMessage(chatId, "❌ Produto não encontrado!");
-
-      // 📌 GUARDA ETAPA
-      etapaUsuario[chatId] = { etapa: "aguardar_comprovante", produto: produto };
-
-      return bot.sendMessage(chatId, `📝 *Instruções para liberação:*
-
-1. Efetue o pagamento para o WhatsApp: 55 51 98152-8372
-2. Envie aqui a IMAGEM do COMPROVANTE ou os dados da transação
-3. Aguardar confirmação e liberação ✅
-
-🆔 *Seu ID para identificação:* \`${chatId}\`
-
-Aguardando envio...`, { parse_mode: "Markdown" });
-    }
-
-    // 📌 OUTROS MENUS
-    switch (acao) {
-      case "menu_produtos":
-        return bot.sendMessage(chatId, "🛍️ *Produtos*\nEscolha uma categoria abaixo 👇", {
-          parse_mode: "Markdown",
-          reply_markup: { inline_keyboard: [[{ text: "📂 Ver Categorias", callback_data: "menu_categorias" }]] }
-        });
-
-      case "menu_suporte":
-        return bot.sendMessage(chatId, "📞 *Suporte ao Cliente*\n\nWhatsApp: 55 51 98152-8372\nTelegram: @SeuUsuario", { parse_mode: "Markdown" });
-
-      case "menu_bot":
-        return bot.sendMessage(chatId, "ℹ️ *Informações do Bot*\n\nVersão: Lite Oficial\nDesenvolvido para: Faelzin\n*official creator Prompt - Faelzin*", { parse_mode: "Markdown" });
-
-      case "menu_dono":
-        return bot.sendMessage(chatId, "👤 *Informações do Dono*\n\nNome: Faelzin\nContato: 55 51 98152-8372\nID Oficial: `SEU_ID_AQUI`", { parse_mode: "Markdown" });
-
-      case "menu_limite":
-        const usados = contadorComandos[chatId] || 0;
-        return bot.sendMessage(chatId, `⚡ *Limite de Comandos*\n\nUtilizados: ${usados}/${LIMITE_COMANDOS_DIARIO}\n*official creator Prompt - Faelzin*`, { parse_mode: "Markdown" });
-    }
-
-  } catch (erro) {
-    bot.sendMessage(chatId, "❌ Ocorreu um erro no sistema! Tente novamente.");
+    // Responde para o Mercado Pago que recebemos a informação
+    res.sendStatus(200);
+  } catch (error) {
+    console.log('❌ Erro no Webhook:', error);
+    res.sendStatus(500);
   }
-
-  await bot.answerCallbackQuery(query.id);
 });
 
-// ======================================
-// 🚀 INICIAR SERVIDOR
-// ======================================
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log("✅ Sistema Online - Render + GitHub"));
+// PORTA DA RENDER (não alterar)
+const PORT = process.env.PORT || 3000;
 
-console.log("✅ Base Lite Oficial - Faelzin Carregada com Sucesso!");
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`🔗 URL de Notificação: ${process.env.WEBHOOK_URL}/webhook/mercadopago`);
+  
+  if (!process.env.WEBHOOK_URL) {
+    console.log('⚠️ ERRO: WEBHOOK_URL não configurada nas variáveis!');
+  }
+});
+
+console.log('🚀 SellForge iniciado com sucesso!');
+
+const CATEGORIAS = [
+  '🔥 Free Fire',
+  '📚 Dicas',
+  '📖 Manuais'
+];
+
+/*
+====================================
+SALVAR USUÁRIO
+====================================
+*/
+async function salvarUsuario(user) {
+  try {
+    await db
+      .collection('users')
+      .doc(String(user.id))
+      .set({
+        id: user.id,
+        nome: user.first_name || '',
+        username: user.username || '',
+        criadoEm: Date.now()
+      }, { merge: true });
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+/*
+====================================
+START
+====================================
+*/
+bot.onText(/\/start/, async (msg) => {
+  await salvarUsuario(msg.from);
+
+  bot.sendMessage(
+    msg.chat.id,
+`🚀 Bem-vindo ao SellForge
+
+Escolha uma opção abaixo:`,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text: '🛒 Produtos',
+              callback_data: 'PRODUTOS'
+            }
+          ],
+          [
+            {
+              text: '👤 Informações Dono',
+              callback_data: 'DONO'
+            }
+          ],
+          [
+            {
+              text: '📞 Suporte',
+              callback_data: 'SUPORTE'
+            }
+          ]
+        ]
+      }
+    }
+  );
+});
+
+/*
+====================================
+FUNÇÃO GERAR PAGAMENTO COM QR CODE
+====================================
+*/
+async function gerarPagamento(chatId, produto) {
+  try {
+    if (!process.env.WEBHOOK_URL) {
+      return bot.sendMessage(chatId, '❌ Sistema de pagamento não configurado. Avise o administrador!');
+    }
+
+    const pagamento = await Payment.create({
+      transaction_amount: produto.valor,
+      description: `Compra: ${produto.nome}`,
+      external_reference: `${chatId}_${produto.id}`,
+      payment_method_id: 'pix',
+      payer: {
+        email: 'cliente@sellforge.com.br'
+      },
+      notification_url: process.env.WEBHOOK_URL + '/webhook/mercadopago'
+    });
+
+    // Dados do QR Code e Código
+    const qrCodeImagem = pagamento.point_of_interaction.transaction_data.qr_code_image;
+    const codigoCopiaCola = pagamento.point_of_interaction.transaction_data.qr_code;
+
+    // Envia a imagem e a mensagem
+    await bot.sendPhoto(chatId, `data:image/png;base64,${qrCodeImagem}`, {
+      caption: 
+`💸 *Pagamento Gerado!* 📱
+
+🛍️ Produto: ${produto.nome}
+💰 Valor: R$ ${produto.valor.toFixed(2)}
+
+📌 Escaneie o QR Code acima ou use o código abaixo:
+
+📋 *Código Copia e Cola:*
+\`\`\`
+${codigoCopiaCola}
+\`\`\`
+
+⏳ Validade: 15 Minutos
+✅ Após o pagamento, o produto chegará automaticamente!`,
+      parse_mode: 'Markdown'
+    });
+
+  } catch (error) {
+    console.log('❌ Erro ao gerar pagamento:', error);
+    bot.sendMessage(chatId, '❌ Erro ao gerar o pagamento. Tente novamente ou contate o suporte.');
+  }
+}
+
+/*
+====================================
+CALLBACKS E MENUS
+====================================
+*/
+bot.on('callback_query', async (query) => {
+  const chatId = query.message.chat.id;
+
+  try {
+    if (query.data === 'PRODUTOS') {
+      bot.sendMessage(
+        chatId,
+`📂 Escolha uma categoria:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: '🔥 Free Fire',
+                  callback_data: 'CAT_FREEFIRE'
+                }
+              ],
+              [
+                {
+                  text: '📚 Dicas',
+                  callback_data: 'CAT_DICAS'
+                }
+              ],
+              [
+                {
+                  text: '📖 Manuais',
+                  callback_data: 'CAT_MANUAIS'
+                }
+              ]
+            ]
+          }
+        }
+      );
+    }
+
+    if (query.data === 'DONO') {
+      bot.sendMessage(
+        chatId,
+`👤 Proprietário
+
+Bem-vindo ao SellForge.
+
+Loja automatizada com entregas digitais.
+
+Em caso de dúvidas utilize o suporte.`
+      );
+    }
+
+    if (query.data === 'SUPORTE') {
+      bot.sendMessage(
+        chatId,
+`📞 Suporte Oficial
+
+WhatsApp:
+https://wa.me/5551981528372`
+      );
+    }
+
+    if (query.data === 'CAT_FREEFIRE') {
+      const produtosSnapshot = await db.collection('produtos').where('categoria', '==', 'freefire').get();
+      
+      if (produtosSnapshot.empty) {
+        bot.sendMessage(chatId, `🔥 Categoria Free Fire\n\nNenhum produto cadastrado ainda.`);
+      } else {
+        let botoes = [];
+        produtosSnapshot.forEach(doc => {
+          const produto = doc.data();
+          produto.id = doc.id;
+          botoes.push([{
+            text: `${produto.nome} - R$ ${produto.valor.toFixed(2)}`,
+            callback_data: `COMPRAR_${produto.id}`
+          }]);
+        });
+
+        bot.sendMessage(chatId, `🔥 Categoria Free Fire\n\nEscolha um produto:`, {
+          reply_markup: { inline_keyboard: botoes }
+        });
+      }
+    }
+
+    if (query.data === 'CAT_DICAS') {
+      const produtosSnapshot = await db.collection('produtos').where('categoria', '==', 'dicas').get();
+      
+      if (produtosSnapshot.empty) {
+        bot.sendMessage(chatId, `📚 Categoria Dicas\n\nNenhum produto cadastrado ainda.`);
+      } else {
+        let botoes = [];
+        produtosSnapshot.forEach(doc => {
+          const produto = doc.data();
+          produto.id = doc.id;
+          botoes.push([{
+            text: `${produto.nome} - R$ ${produto.valor.toFixed(2)}`,
+            callback_data: `COMPRAR_${produto.id}`
+          }]);
+        });
+
+        bot.sendMessage(chatId, `📚 Categoria Dicas\n\nEscolha um produto:`, {
+          reply_markup: { inline_keyboard: botoes }
+        });
+      }
+    }
+
+    if (query.data === 'CAT_MANUAIS') {
+      const produtosSnapshot = await db.collection('produtos').where('categoria', '==', 'manuais').get();
+      
+      if (produtosSnapshot.empty) {
+        bot.sendMessage(chatId, `📖 Categoria Manuais\n\nNenhum produto cadastrado ainda.`);
+      } else {
+        let botoes = [];
+        produtosSnapshot.forEach(doc => {
+          const produto = doc.data();
+          produto.id = doc.id;
+          botoes.push([{
+            text: `${produto.nome} - R$ ${produto.valor.toFixed(2)}`,
+            callback_data: `COMPRAR_${produto.id}`
+          }]);
+        });
+
+        bot.sendMessage(chatId, `📖 Categoria Manuais\n\nEscolha um produto:`, {
+          reply_markup: { inline_keyboard: botoes }
+        });
+      }
+    }
+
+    if (query.data.startsWith('COMPRAR_')) {
+      const produtoId = query.data.split('_')[1];
+      const produtoDoc = await db.collection('produtos').doc(produtoId).get();
+
+      if (!produtoDoc.exists) {
+        return bot.sendMessage(chatId, '❌ Produto não encontrado.');
+      }
+
+      const produto = produtoDoc.data();
+      produto.id = produtoId;
+
+      await gerarPagamento(chatId, produto);
+    }
+
+    await bot.answerCallbackQuery(query.id);
+
+  } catch (error) {
+    console.log(error);
+  }
+});
+
+/*
+====================================
+ERROS E LOGS
+====================================
+*/
+bot.on('polling_error', (error) => {
+  console.log('⚠️ Erro de conexão:', error.message);
+});
+
+process.on('uncaughtException', (error) => {
+  console.log('⚠️ Erro geral:', error);
+});
+
+process.on('unhandledRejection', (error) => {
+  console.log('⚠️ Rejeição não tratada:', error);
+});
